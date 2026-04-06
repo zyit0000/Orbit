@@ -1,0 +1,26 @@
+- name: Build App
+        id: tauri_build
+        # Use v2 for Tauri 2.0 projects
+        uses: tauri-apps/tauri-action@v0 
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v0.1.0 # Set a concrete version for now
+          releaseName: "Orbit v0.1.0"
+          releaseBody: "Latest build of Orbit."
+          releaseDraft: true
+          prerelease: false
+          # Pass the target directly to the action's built-in logic
+          args: ${{ matrix.args }}
+
+      # Use a more flexible wildcard for uploading
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'push'
+        with:
+          tag_name: "v0.1.0"
+          files: |
+            src-tauri/target/**/bundle/dmg/*.dmg
+            src-tauri/target/**/bundle/msi/*.msi
+            src-tauri/target/**/bundle/nsis/*.exe
+          draft: true
