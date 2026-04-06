@@ -1,114 +1,63 @@
-# Orbit Editor Build Instructions
+# Orbit Editor Build Instructions (Tauri v2)
 
-To build Orbit as a desktop application with a custom frameless topbar for macOS (Intel, ARM, Universal) and Windows 11, follow these steps.
+To build Orbit as a high-performance desktop application with a custom frameless topbar for macOS (Intel, ARM, Universal) and Windows 11, follow these steps.
 
 ## 1. Prerequisites
-- Node.js installed.
-- Electron and Electron Builder added to your project.
+- **Rust**: Install Rust from [rustup.rs](https://rustup.rs/).
+- **Node.js**: Install Node.js.
+- **Tauri CLI**: Install the Tauri v2 CLI globally or use `npx`.
 
 ```bash
-npm install --save-dev electron electron-builder
+npm install -g @tauri-apps/cli@latest
 ```
 
-## 2. Electron Main Script (`main.js`)
-Create a `main.js` in your root directory to handle the frameless window and IPC events.
+## 2. Local Development
+To run the app in development mode:
 
-```javascript
-const { app, BrowserWindow, ipcMain } = require('electron');
-const path = require('path');
-
-function createWindow() {
-  const win = new BrowserWindow({
-    width: 1000,
-    height: 600, // Somewhat wide and not too tall
-    frame: false, // This removes the default OS topbar
-    titleBarStyle: 'hidden', // For macOS to keep traffic lights if desired, or 'hidden' for full custom
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false
-    }
-  });
-
-  // In production, load the built index.html
-  // win.loadFile('dist/index.html');
-  win.loadURL('http://localhost:3000'); // For development
-}
-
-app.whenReady().then(createWindow);
-
-ipcMain.on('window-minimize', () => BrowserWindow.getFocusedWindow()?.minimize());
-ipcMain.on('window-maximize', () => {
-  const win = BrowserWindow.getFocusedWindow();
-  if (win?.isMaximized()) win.unmaximize();
-  else win?.maximize();
-});
-ipcMain.on('window-close', () => BrowserWindow.getFocusedWindow()?.close());
+```bash
+npm run dev # Start the frontend
+npx tauri dev # Start the Tauri desktop window
 ```
 
-## 3. Preload Script (`preload.js`)
-Expose the window controls to the React app.
-
-```javascript
-const { contextBridge, ipcRenderer } = require('electron');
-
-contextBridge.exposeInMainWorld('electron', {
-  minimize: () => ipcRenderer.send('window-minimize'),
-  maximize: () => ipcRenderer.send('window-maximize'),
-  close: () => ipcRenderer.send('window-close')
-});
-```
-
-## 4. GitHub Workflow (`.github/workflows/build.yml`)
-Use this workflow to build for all platforms.
+## 3. GitHub Workflow (`.github/workflows/tauri-build.yml`)
+Use this workflow to build for all platforms automatically.
 
 ```yaml
-name: Build Desktop App
+name: Build Desktop App (Tauri v2)
 on: [push]
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        platform: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Install Node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: 18
-      - name: Install Dependencies
+          node-version: 20
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install Frontend Dependencies
         run: npm install
-      - name: Build React App
-        run: npm run build
-      - name: Build Electron App
-        run: npx electron-builder --publish never
+      - name: Build App
+        uses: tauri-apps/tauri-action@v0
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__
+          releaseName: "Orbit v__VERSION__"
+          releaseBody: "See the assets below to download the latest version of Orbit."
+          releaseDraft: true
+          prerelease: false
 ```
 
-## 5. Electron Builder Config (`package.json`)
-Add this to your `package.json`:
-
-```json
-"build": {
-  "appId": "com.orbit.editor",
-  "productName": "Orbit",
-  "mac": {
-    "target": [
-      {
-        "target": "dmg",
-        "arch": ["x64", "arm64", "universal"]
-      }
-    ]
-  },
-  "win": {
-    "target": "nsis"
-  },
-  "directories": {
-    "output": "release"
-  }
-}
-```
+## 4. Configuration Highlights
+- **Tauri v2**: The app is built using Tauri v2 for better performance and security.
+- **Frameless Window**: Configured in `src-tauri/tauri.conf.json` with `"decorations": false` and `"transparent": true`.
+- **Drag Region**: The topbar in `App.tsx` uses `style={{ WebkitAppRegion: 'drag' }}` to allow moving the window.
+- **Multi-Arch macOS**: The GitHub Action handles building for both Intel and Apple Silicon.

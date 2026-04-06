@@ -19,6 +19,7 @@ import {
   Bell,
   Copy
 } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
 import Editor from '@monaco-editor/react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useState, type ReactNode, useEffect, useRef } from 'react';
@@ -185,20 +186,35 @@ export default function App() {
 
   const handleAttach = async () => {
     try {
-      const response = await fetch('/api/attach', { 
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ executor: settings.executor })
-      });
-      const data = await response.json();
-      if (data.success) {
-        setIsDisconnected(false);
-        setAttachedPort(data.port);
-        addNotification('success', `Connected! (${data.port})`);
+      if (settings.executor === 'Opiumware') {
+        const result = await invoke<string>('opiumware_attach_any');
+        if (result.startsWith('Successfully attached')) {
+          const port = result.split('port ')[1];
+          setIsDisconnected(false);
+          setAttachedPort(port);
+          addNotification('success', result);
+        } else {
+          setIsDisconnected(true);
+          setAttachedPort(null);
+          addNotification('error', result);
+        }
       } else {
-        setIsDisconnected(true);
-        setAttachedPort(null);
-        addNotification('error', data.message);
+        // Fallback for MacSploit or other executors if they still use the JS API
+        const response = await fetch('/api/attach', { 
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ executor: settings.executor })
+        });
+        const data = await response.json();
+        if (data.success) {
+          setIsDisconnected(false);
+          setAttachedPort(data.port);
+          addNotification('success', `Connected! (${data.port})`);
+        } else {
+          setIsDisconnected(true);
+          setAttachedPort(null);
+          addNotification('error', data.message);
+        }
       }
     } catch (error: any) {
       addNotification('error', `Failed to connect: ${error.message}`);
@@ -212,23 +228,33 @@ export default function App() {
     }
 
     try {
-      const isOpium = settings.executor === 'Opiumware';
-      const finalCode = isOpium ? `OpiumwareScript ${code}` : code;
-      
-      const response = await fetch('/api/execute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          code: finalCode, 
-          port: attachedPort,
-          executor: settings.executor
-        })
-      });
-      const data = await response.json();
-      if (data.success) {
-        addNotification('success', 'Script executed successfully.');
+      if (settings.executor === 'Opiumware') {
+        const result = await invoke<string>('opiumware_execute', { 
+          code: code, 
+          port: attachedPort 
+        });
+        if (result.startsWith('Successfully')) {
+          addNotification('success', result);
+        } else {
+          addNotification('error', result);
+        }
       } else {
-        addNotification('error', data.message);
+        // Fallback for other executors
+        const response = await fetch('/api/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            code: code, 
+            port: attachedPort,
+            executor: settings.executor
+          })
+        });
+        const data = await response.json();
+        if (data.success) {
+          addNotification('success', 'Script executed successfully.');
+        } else {
+          addNotification('error', data.message);
+        }
       }
     } catch (error: any) {
       addNotification('error', `Execution failed: ${error.message}`);
@@ -238,6 +264,9 @@ export default function App() {
   useEffect(() => {
     // Detach if executor changes
     if (attachedPort) {
+      if (settings.executor === 'Opiumware') {
+        invoke('opiumware_detach', { port: attachedPort }).catch(console.error);
+      }
       setIsDisconnected(true);
       setAttachedPort(null);
       addNotification('info', `Switched to ${settings.executor}. Please re-attach.`);
@@ -261,6 +290,26 @@ export default function App() {
     }, 30000);
     return () => clearInterval(autoSaveInterval);
   }, [code]);
+
+  // Periodic port status check for Opiumware
+  useEffect(() => {
+    if (settings.executor !== 'Opiumware' || !attachedPort) return;
+
+    const checkInterval = setInterval(async () => {
+      try {
+        const isConnected = await invoke<boolean>('opiumware_check_port', { port: attachedPort });
+        if (!isConnected) {
+          setIsDisconnected(true);
+          setAttachedPort(null);
+          addNotification('error', 'Opiumware disconnected.');
+        }
+      } catch (error) {
+        console.error('Failed to check port status:', error);
+      }
+    }, 5000);
+
+    return () => clearInterval(checkInterval);
+  }, [settings.executor, attachedPort]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -357,19 +406,28 @@ export default function App() {
 
           <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as any}>
             <button 
-              onClick={() => (window as any).electron?.minimize()}
+              onClick={async () => {
+                const { getCurrentWindow } = await import('@tauri-apps/api/window');
+                await getCurrentWindow().minimize();
+              }}
               className={`p-2 rounded transition-colors ${isDark ? 'hover:bg-[#333333]' : 'hover:bg-[#EDEBE9]'}`}
             >
               <Minus size={16} />
             </button>
             <button 
-              onClick={() => (window as any).electron?.maximize()}
+              onClick={async () => {
+                const { getCurrentWindow } = await import('@tauri-apps/api/window');
+                await getCurrentWindow().toggleMaximize();
+              }}
               className={`p-2 rounded transition-colors ${isDark ? 'hover:bg-[#333333]' : 'hover:bg-[#EDEBE9]'}`}
             >
               <Square size={14} />
             </button>
             <button 
-              onClick={() => (window as any).electron?.close()}
+              onClick={async () => {
+                const { getCurrentWindow } = await import('@tauri-apps/api/window');
+                await getCurrentWindow().close();
+              }}
               className={`p-2 rounded transition-colors ${isDark ? 'hover:bg-[#C42B1C] hover:text-white' : 'hover:bg-[#C42B1C] hover:text-white'}`}
             >
               <X size={16} />
