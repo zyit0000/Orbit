@@ -6,20 +6,39 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos-latest, windows-latest]
+        include:
+          - platform: windows-latest
+            args: ""
+          - platform: macos-latest
+            args: "--target x86_64-apple-darwin"
+            suffix: "intel"
+          - platform: macos-latest
+            args: "--target aarch64-apple-darwin"
+            suffix: "arm"
+          - platform: macos-latest
+            args: "--target universal-apple-darwin"
+            suffix: "universal"
+
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Install Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'x86_64-apple-darwin,aarch64-apple-darwin' || '' }}
+
       - name: Install Frontend Dependencies
         run: npm install
+
       - name: Build App
+        id: tauri_build
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -29,3 +48,42 @@ jobs:
           releaseBody: "See the assets below to download the latest version of Orbit."
           releaseDraft: true
           prerelease: false
+          args: ${{ matrix.args }}
+          includeRelease: false
+
+      - name: Prepare Assets (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          TARGET_NAME=$(echo "${{ matrix.args }}" | sed 's/--target //')
+          if [ -z "$TARGET_NAME" ]; then
+            SEARCH_DIR="src-tauri/target/release/bundle/dmg"
+          else
+            SEARCH_DIR="src-tauri/target/$TARGET_NAME/release/bundle/dmg"
+          fi
+          DMG_FILE=$(ls $SEARCH_DIR/*.dmg | head -n 1)
+          cp "$DMG_FILE" "Orbit_${{ matrix.suffix }}.dmg"
+
+      - name: Prepare Assets (Windows)
+        if: matrix.platform == 'windows-latest'
+        run: |
+          SEARCH_DIR="src-tauri/target/release/bundle/msi"
+          # In Tauri v2, the path might be different. Let's check common locations.
+          if [ ! -d "$SEARCH_DIR" ]; then
+            SEARCH_DIR="src-tauri/target/release/bundle/nsis"
+          fi
+          INSTALLER_FILE=$(ls $SEARCH_DIR/*.msi $SEARCH_DIR/*.exe | head -n 1)
+          cp "$INSTALLER_FILE" "Orbit_windows_installer.${INSTALLER_FILE##*.}"
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: "v0.1.0"
+          files: |
+            Orbit_*.dmg
+            Orbit_windows_installer.*
+          fail_on_unmatched_files: false
+          draft: true
+          prerelease: false
+          generate_release_notes: true

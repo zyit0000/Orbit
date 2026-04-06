@@ -20,7 +20,11 @@ npx tauri dev # Start the Tauri desktop window
 ```
 
 ## 3. GitHub Workflow (`.github/workflows/tauri-build.yml`)
-Use this workflow to build for all platforms automatically.
+Use this workflow to build for all platforms automatically. It is configured to generate:
+- **`Orbit_intel.dmg`**: For Intel-based Macs.
+- **`Orbit_arm.dmg`**: For Apple Silicon (M1/M2/M3) Macs.
+- **`Orbit_universal.dmg`**: A single binary that runs on both Intel and Apple Silicon.
+- **`Orbit_windows_installer.msi`**: For Windows 11.
 
 ```yaml
 name: Build Desktop App (Tauri v2)
@@ -31,29 +35,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos-latest, windows-latest]
-    runs-on: ${{ matrix.platform }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - name: Install Frontend Dependencies
-        run: npm install
-      - name: Build App
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: v__VERSION__
-          releaseName: "Orbit v__VERSION__"
-          releaseBody: "See the assets below to download the latest version of Orbit."
-          releaseDraft: true
-          prerelease: false
+        include:
+          - platform: windows-latest
+            args: ""
+          - platform: macos-latest
+            args: "--target x86_64-apple-darwin"
+            suffix: "intel"
+          - platform: macos-latest
+            args: "--target aarch64-apple-darwin"
+            suffix: "arm"
+          - platform: macos-latest
+            args: "--target universal-apple-darwin"
+            suffix: "universal"
+    # ... (see .github/workflows/tauri-build.yml for full source)
 ```
 
 ## 4. Configuration Highlights
