@@ -1,0 +1,23 @@
+- name: Build App
+        id: tauri_build
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v0.1.0 
+          releaseName: "Orbit v0.1.0"
+          # IMPORTANT: Tell the action where the config is if it's not in the root
+          projectPath: "./" 
+          args: ${{ matrix.args }}
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: "v0.1.0"
+          # Use recursive wildcards to find the artifacts regardless of the target folder
+          files: |
+            src-tauri/target/**/bundle/dmg/*.dmg
+            src-tauri/target/**/bundle/msi/*.msi
+            src-tauri/target/**/bundle/nsis/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
